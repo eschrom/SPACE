@@ -1,0 +1,550 @@
+---
+title: "SPACE Tutorial"
+author: "Edward Schrom"
+date: '2024-05-28'
+output: html_document
+bibliography: references.bib
+vignette: >
+  %\VignetteIndexEntry{SPACE Tutorial}
+  %\VignetteEngine{knitr::rmarkdown}
+  \usepackage[utf8]{inputenc}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Spatial Patterning Analysis of Cellular Ensembles (SPACE) is a set of computational tools that identify and characterize spatial patterns in multiplex images of biological tissues. Much of the package's terminology reflects this context, as do the sample data sets in this tutorial. However, SPACE can be applied to any spatial data.
+
+This tutorial provides examples of how to use each SPACE function, as well as a glossary of useful terminology. Please refer to the SPACE package documentation for more detailed information on function inputs, outputs, and parameters.
+
+To demonstrate a SPACE analysis of a single biological specimen, this tutorial uses a 2-dimensional 56-plex image of a human mesenteric lymph node [@radtke2020]. For expedience, only 5% of the original image area and 30 of the 56 original markers are used here. To demonstrate a SPACE analysis of multiple biological specimens, this tutorial uses a set of 30 2-dimensional images of human Tuberculosis granulomas [@mccaffrey2022].
+
+```{r}
+library(SPACE)
+```
+
+# Import and Visualize Input Data
+
+SPACE accepts several different forms of input data. The human lymph node image has been processed to provide examples of each. Although the human lymph node data is 2-dimensional, 3-dimensional data are also accepted.
+
+## Object Images
+
+Object images contain discrete color-coded spatial regions which can represent a variety of biological elements: segmented cells, extracellular structures, microanatomical zonation, etc. Object images must be provided in RGB color .tif format. They are loaded with the load_image function and visualized with the plot_image function.
+
+Here, two object images are loaded:
+
+1) Round cells that are classified into 20 different types after segmentation based on the expression of 17 biomolecules.
+2) Tortuous cells and structures that are classified into 6 different types at the pixel level based on the expression of 8 biomolecules.
+
+```{r warning=FALSE, results=FALSE, fig.cap="Fig. 1. Object image of the human lymph node from cell segmentation and classification."}
+IMG_obj1 <- load_image(in_file = "HuLN_Object1.tif", img_type = "O", bkgd_col = "black")
+PAL_obj1 <- IMG_obj1[[2]]
+IMG_obj1 <- IMG_obj1[[1]]
+plot_image(img = IMG_obj1, img_type = "O", col_pal = PAL_obj1)
+```
+
+```{r warning=FALSE, results=FALSE, fig.cap="Fig. 2. Object image of the human lymph node from pixel classification."}
+IMG_obj2 <- load_image(in_file = "HuLN_Object2.tif", img_type = "O", bkgd_col = "black")
+PAL_obj2 <- IMG_obj2[[2]]
+IMG_obj2 <- IMG_obj2[[1]]
+plot_image(img = IMG_obj2, img_type = "O", col_pal = PAL_obj2)
+```
+
+In both cases, the load_image function returns a list of two outputs. The first is an array representation of the object image. The second is a vector of the distinct colors in the object image, called a color palette. It is useful to assign different names to these two outputs.
+
+Color palettes can be plotted directly, to provide legends for object images, using the plot_palette function.
+
+```{r fig.height=2.5, fig.cap="Fig 3. Color palette for the pixel-based object image of the human lymph node."}
+plot_palette(col_pal = PAL_obj2, axis_label = "Object Types", plot_bkgd = "W")
+```
+
+Color-coded objects are often characterized by their compositions of biomolecule expression or smaller constituent objects. Thus, an object image may be accompanied by a profile table, which reports the average composition of each object.
+
+A profile table in .csv format can be imported using the load_table function. To insure that the object labels match between the profile table and the corresponding object image, the object image and color palette must also be given. The objects in the profile table will be reordered to match the image and color palette.
+
+```{r}
+TBL_obj2_prof <- load_table(in_file = "HuLN_Object2_ProfTable.csv", table_type = "P", img = IMG_obj2, col_pal = PAL_obj2)
+head(TBL_obj2_prof)
+```
+
+To reveal what each object represents biologically, profile tables can be visualized as heat maps using the plot_table function.
+
+```{r fig.cap="Fig. 4. Profiles of biomolecule expression for the pixel-based objects in the human lymph node."}
+plot_table(prof_table = TBL_obj2_prof, compare = "A", normalize = "U", tile_plots = T, plot_bkgd = "W")
+```
+
+Descriptive names may be assigned to each object for display instead of numeric codes when plotting a color palette.
+
+```{r fig.height=5, fig.width=3, fig.cap="Fig. 5. Color palette for the pixel-based object image of the human lymph node with descriptive names."}
+NMS_obj2 <- c("Matrix","Blood Vessel","Mesenchyma","Smooth Muscle","FDC Network","Lymphatic Vessel")
+plot_palette(col_pal = PAL_obj2, axis_label = "Object Type", col_labels = NMS_obj2, vertical = T, plot_bkgd = "W")
+```
+
+The color palette and profile table for the segmentation-based object image (Fig. 1) are plotted similarly. When loading a profile table for a segmentation-based object image, matching the object labels to their correct profiles can take several minutes.
+
+```{r fig.height=2.5, fig.width=10, fig.cap="Fig. 6. Color palette for the segmentation-based object image of the human lymph node."}
+plot_palette(col_pal = PAL_obj1, axis_label = "Object Type", plot_bkgd = "W")
+```
+
+```{r results='hide', message = FALSE, fig.cap="Fig. 7. Profiles of biomolecule expression for the segmentation-based objects in the human lymph node."}
+TBL_obj1_prof <- load_table(in_file = "HuLN_Object1_ProfTable.csv", table_type = "P", img = IMG_obj1, col_pal = PAL_obj1)
+plot_table(prof_table = TBL_obj1_prof, compare = "A", normalize = "U", tile_plots = T, plot_bkgd = "W")
+```
+
+Removing excess objects can speed up downstream computations. Notice that Objects 7 and 8 share similar profiles: moderate expression for DC-SIGN and low for most other biomolecules. Objects 9, 14, 15, 16, 17, and 18 also share similar expression profiles: high for DAPI, CD20, and CD45, moderate for HLA-DR, and low for most other biomolecules. The merge_objects function can merge Objects 7 and 8 into a single type, and merge Objects 9, 14, 15, 16, 17, and 18 into another single type.
+
+```{r results='hide'}
+MERGE <- merge_objects(prof_table = TBL_obj1_prof, img = IMG_obj1, col_pal = PAL_obj1, obj_groups = list(c(7,8), c(9,14,15,16,17,18)))
+TBL_obj1_prof <- MERGE[[1]]
+IMG_obj1 <- MERGE[[2]]
+PAL_obj1 <- MERGE[[3]]
+remove(MERGE)
+```
+
+Objects can be merged in a profile table, an object image, and a color palette. Any/all of these inputs can be supplied simultaneously to obtain a list of corresponding outputs. It can be helpful to overwrite the old data.
+
+After merging, the updated segmentation-based object image can be plotted, along with the updated profile table.
+ 
+```{r results=FALSE, fig.cap="Fig. 8. Segmentation-based object image of the human lymph node after merging."}
+plot_image(img = IMG_obj1, img_type = "O", col_pal = PAL_obj1)
+```
+
+```{r fig.cap="Fig. 9. Profiles of biomolecule expression for the segmentation-based objects in the human lymph node after merging."}
+plot_table(prof_table = TBL_obj1_prof, tile_plots = T)
+```
+
+These biomolecule expression profiles suggest descriptive names for the objects. Again, these names can be plotted alongside the color palette. 
+
+```{r fig.height=5, fig.width=3.5, fig.cap="Fig. 10. Color palette for the segmentation-based object image of the human lymph node with descriptive names."}
+NMS_obj1 <- c("T-reg","CD8 T","B-Eng CD4 T","CD4 T","APC-Eng CD4 T","GC B","DC","Foll B", "M1 Mac","Coll Mac","M2 Mac","Plasma","MAIT","Reg Mac")
+plot_palette(col_pal = PAL_obj1, axis_label = "Object Type", col_labels = NMS_obj1, vertical = T, plot_bkgd = "W")
+```
+
+By coincidence, a palette may contain similar colors that are difficult to distinguish visually. If a new color palette is desired, one can be specified manually or created using the make_palette function. 
+
+```{r echo=FALSE}
+load("PAL_obj1_alt.Rdata")
+```
+
+```{r eval=FALSE}
+PAL_obj1_alt <- make_palette(num_cols = 14)
+```
+
+The new color palette can then be plotted as a legend and used to plot the object image.
+
+```{r fig.height=5, fig.width=3.5, fig.cap="Fig. 11. New color palette for the segmentation-based object image of the human lymph node."}
+plot_palette(col_pal = PAL_obj1_alt, axis_label = "Object Type", col_labels = NMS_obj1, vertical = T, plot_bkgd = "W")
+```
+
+```{r results=FALSE, fig.cap= "Fig. 12. Segmentation-based object image of the human lymph node with new color palette." }
+plot_image(img = IMG_obj1, img_type = "O", col_pal = PAL_obj1_alt)
+```
+
+## Object Tables
+
+Sometimes objects are not available as a color-coded image, but only as a table which gives the centroid coordinates and object type of each individual item. An object table is functionally equivalent to an image but without size or morphology depicted. An object table in .csv format can be loaded with the load_table function.
+
+```{r}
+TBL_obj1_obj <- load_table("HuLN_Object1_ObjTable_Types.csv", table_type = "O")
+head(TBL_obj1_obj)
+```
+
+Like object images, object tables may be accompanied by a profile table which helps interpret what each object represents biologically. Such a profile table can be loaded without reference to a corresponding image or color palette and plotted as shown above. Because there is no reference image or color palette, profile tables that refer to object tables will not be reordered. Thus, if an object image and object table refer to the same biological specimen, beware that their systems of numeric codes may differ. 
+
+Object tables may also include levels of biomolecule expression for each individual item. If biomolecule expression is included in an object table, each biomolecule should be represented as an extra column.
+
+```{r echo=FALSE}
+TBL_obj1_obj <- load_table("HuLN_Object1_ObjTable_Exprs.csv", table_type = "O")
+head(TBL_obj1_obj)
+```
+
+Similar objects can also be merged as shown above. 
+
+```{r results='hide', eval=FALSE}
+MERGE <- merge_objects(obj_table = TBL_obj1_obj, obj_groups = list(c(8,15), c(3,5,6,7,9,11)))
+TBL_obj1_obj <- MERGE[[1]]
+remove(MERGE)
+```
+
+## Scalar Images
+
+Scalar images contain the expression intensity for a particular biomolecule or set of biomolecules. Scalar images must be provided in 8-bit grayscale .tif format, as a stack if multiple biomolecules are included. Scalar images are imported using the load_image function and visualized using the plot_image function. 
+
+Here, two scalar images are loaded:
+
+1) Three biomolecules which will be considered independent of the previously imported objects.
+2) Two biomolecules which will be linked to specific objects from the segmentation-based object image.
+
+```{r warning=FALSE, results=FALSE, fig.cap="Fig. 13. Scalar image of CXCL13 (blue), CXCL12 (red), and Fibronectin (yellow) in the human lymph node, to be used independently."}
+IMG_scl3 <- load_image(in_file = "HuLN_Scalar3.tif", img_type = "S", num_chs = 3)
+PAL_scl3 <- c("blue", "red", "yellow")
+plot_image(img = IMG_scl3, img_type = "S", col_pal = PAL_scl3)
+```
+
+```{r warning=FALSE, results=FALSE, fig.cap="Fig. 14. Scalar image of Ki67 (green) and PD-1 (magenta) in the human lymph node, to be linked to objects."}
+IMG_scl1 <- load_image(in_file = "HuLN_Scalar1.tif", img_type = "S", num_chs = 2)
+PAL_scl1 <- c("green", "magenta")
+plot_image(img = IMG_scl1, img_type = "S", col_pal = PAL_scl1)
+```
+
+For scalar images, the load_image function returns only one output: an array representation of the image. Color palettes are not inherent to scalar images, but they can be defined manually as shown above.
+
+Scalars may be independent, or they may be linked to objects. Independent scalars stand alone; e.g. CXCL13 is a single element that may form spatial patterns with any other scalar(s) or object(s) in the data. Linked scalars, on the other hand, are matched to specific objects; e.g. Ki67 on T-regs and Ki67 on GC B cells are separate elements that may form spatial patterns with each other or with other scalars or objects in the data.
+
+## Naming Conventions and Link Tables
+
+When handling objects, independent scalars, and linked scalars, consistent naming conventions are important:
+
+- Object images contain a set of objects. The set is assigned an alpha-numeric code, and each constituent object is assigned a separate numeric code. Generally, if multiple object images represent the same biological specimen, the first is named "O1", the second "O2", and so on. In this example, the segmentation-based object image is named "O1" and its 14 constituent objects (identifiable as "T-reg", "CD8 T", ..., "Reg Mac") are named "O1.1", "O1.2", ..., "O1.14". The pixel-based object image is named "O2" and its 6 constituent objects (identifiable as "Matrix", "Blood Vessel", ..., "Lymphatic Vessel") are named "O2.1", "O2.2", ..., "O2.6".
+- Scalar images contain a set of scalars. The set is assigned an alpha-numeric code, and each constituent scalar is assigned a separate numeric code. Generally, if the scalar set is linked to an object set from the same biological specimen, it is given the same number as that object set. If a scalar set is independent, it is given a unique number that no object set has. In this example, the linked scalar set is named "S1" because its constituents will be linked to the "O1" objects, and these constituents (identifiable as "Ki67" and "PD-1") are named "S1.1" and "S1.2". The independent scalar set is named "S3" because there is not a third object set, and its constituents (identifiable as "CXCL13", "CXCL12", and "Fibronectin") are named "S3.1", "S3.2", and "S3.3".
+
+For linked scalars, not every scalar in the set must be linked to every object in the corresponding set. For example, perhaps "Ki67 on T-reg" is of interest, but "Ki67 on DC" is not. To specify which scalar-object pairs to analyze, a link table is imported in .csv format using the load_table function. In a link table, rows and columns represent the objects and scalars, respectively, using their alpha-numeric names. Entries of 1 indicate combinations of interest, and entries of 0 indicate combinations to ignore. 
+
+```{r}
+TBL_link <- load_table("HuLN_LinkTable.csv", table_type = "L")
+TBL_link
+```
+
+In this example, the expression of S1.1 will be considered for six segmentation-based objects, and the expression of S1.2 will be considered for three segmentation-based objects.
+
+# Census Input Data
+
+Once all input data, whether images or tables, are imported, the first step of spatial analysis is to transform these input data into a census. A census is a collection of many neighborhoods, where each neighborhood is a spherical spatial region whose composition is measured and recorded. Spherical neighborhoods reduce to circles for 2d input data. Neighborhood composition is measured with respect to all variables (i.e. objects, independent scalars, and/or linked scalars) represented in the images or table.
+
+## Census an Image
+
+When the input data is an image or a collection of images, censusing follows these steps:
+
+- Choose seed points to be the centers of each neighborhood.
+- Draw a spherical neighborhood of a defined radius around each seed point. Using a range of smaller to larger radii can reveal patterns across a range of fine-grained to coarse-grained spatial scales.
+- Measure the amount of each variable in each neighborhood, and record this information in the census.
+- Measure the size of each patch in each neighborhood, and record this information in the patch list. Patches are contiguous regions belonging to one object type or bright for one scalar that lie within a neighborhood.
+
+Censusing an image requires two parameters: the neighborhood radii and the number of neighborhoods to collect at each radius. SPACE offers guidance on the selection of each parameter, using the suggest_radii and suggest_number functions, respectively.
+
+Radii, in pixels, are chosen to reflect distances in microns. The resolution of the image (microns/pixel), must be provided for the X, Y, and Z dimensions separately.
+
+As an example, radii are requested that approximate length scales of 10, 20, 30, 40, and 50 microns.
+
+```{r fig.cap=c("Fig. 15a. Conversion of desired radii from microns to pixels in the X dimension.", "Fig. 15b. Conversion of desired radii from microns to pixels in the Y dimension.", "Fig. 15c. Conversion of desired radii from microns to pixels in the Z dimension.")}
+PAR_radii <- suggest_radii(target = seq(10, 50, by=10), pix_res = c(X=0.284, Y=0.284, Z=1))
+```
+
+The number of neighborhoods to draw is chosen based on coverage. For example, 5x coverage means that every non-background pixel is included in an average of 5 different neighborhoods. Coverage should be less than or equal to 5x; otherwise, pseudo-replication becomes a serious statistical flaw. Within a reasonable range of 1-5x, smaller coverages reduce downstream statistical power but speed up computational times. Conversely, larger coverages increase downstream statistical power but slow down computational times. For any given coverage, the number of neighborhoods to draw is inversely related to radius. Calculating the appropriate number of neighborhoods based on a desired coverage and radii may require several minutes, and the image(s) to be analyzed must be provided.
+
+```{r fig.cap="Fig. 16. Conversion of desired coverage into required sample size."}
+PAR_number <- suggest_number(coverage = 5, radii = PAR_radii, images = list(S1 = IMG_scl1, S3 = IMG_scl3, O1 = IMG_obj1, O2 = IMG_obj2))
+```
+
+Once radii and sample sizes are chosen, the census and patch list are generated using the census_image function. This function can require minutes to hours to run. Bigger and/or more numerous neighborhoods require more time.
+
+```{r echo=FALSE}
+load("CEN_images.Rdata")
+load("PLS_images.Rdata")
+```
+
+```{r eval=FALSE}
+CEN_images <- census_image(images = list(O1 = IMG_obj1, O2 = IMG_obj2, S1 = IMG_scl1, S3 = IMG_scl3), OS_pairs = list(O1 = TBL_link), radii = PAR_radii, sample_size = PAR_number)
+PLS_images <- CEN_images[[2]]
+CEN_images <- CEN_images[[1]]
+```
+
+Census_images returns a list of two outputs: the census and the patch list. It can be useful to assign different names to these two outputs. The census is a data frame containing the amount of each variable in each neighborhood, as well as the seed point and radius of each neighborhood. For objects, amount is quantified as the percentage of the neighborhood volume or area. For scalars, amount is quantified as the average expression intensity per pixel. The census is required for analysis and display of spatial patterns found in the images. The patch list is a more complicated data structure required for simulation of random censuses, which provides statistical validation for certain calculations.
+
+```{r, echo=FALSE}
+head(CEN_images)
+```
+
+## Census a Table
+
+Because object tables contain less information than images, collecting a census from an object table is less precise, but also faster. Because object tables only refer to segmentation-based objects (typically cells), pixel-based objects and independent scalars are not censused in this way. The steps to collect a census from an object table are:
+
+- Choose seed points, or the centers of each neighborhood. These are chosen from among the centroids of the cells in the table.
+- Draw a spherical neighborhood of a defined radius around each seed point. Using a range of smaller to larger radii can reveal patterns across a range of fine-grained to coarse-grained spatial scales.
+- Count the number of centroids of each object in each neighborhood, and record this information in the census as well as the patch list. The expression of linked scalars can also be measured, if they are included in the object table and a link table is also provided.
+
+Censusing a table requires the same two parameters as censusing an image: the neighborhood radii and the number of neighborhoods to collect at each radius. Note that the centroid coordinates in a table are assumed to be in units of microns, such that the desired radii in microns need not be converted to pixels. The census is generated using the census_table function.
+
+```{r echo=FALSE}
+load("CEN_table.Rdata")
+load("PLS_table.Rdata")
+```
+
+```{r eval=FALSE}
+CEN_table <- census_table(object_table = TBL_obj1_obj, radii = seq(10,50,by=10), sample_size = PAR_number)
+PLS_table <- CEN_table[[2]]
+CEN_table <- CEN_table[[1]]
+```
+
+Again, the output is a two-part list: the census and the patch list. These two outputs can be named separately, and they will be used in downstream functions exactly like the outputs of image censusing. The census and patch list are the primary data structures in subsequent analyses, regardless of whether they derive from images or tables.
+
+# Visualize a Census Directly
+
+A census surveys how frequently different quantitative combinations of variables co-occur locally. This enables downstream statistical inferences, but even before this, useful visualizations can be generated for one or two variables using the plot_dist function. The distribution that is plotted reveals how frequently different amounts of one or two variables occur in the neighborhoods that have been censused.
+
+As an example, the observed distribution for germinal center (GC) B cells is plotted from the image-based census, for neighborhoods with a 10 micron radius. The amount of GC B cells in each neighborhood is rounded into 11 bins, i.e. rounded to 0, 10, 20, ..., or 100% of the maximum observed value. In this case, the maximum observed value is itself 100% - that is, the entire neighborhood is comprised of GC B cells.  
+
+```{r results='hide', fig.cap="Fig. 17. Distribution of GC B cell (O1.6) abundance among 10-micron neighborhoods."}
+plot_dist(census = CEN_images, ensemble = "O1.6", radius = 10, bin_num = 11)
+```
+
+Most 10um neighborhoods contain no GC B cells. However, a small fraction of neighborhoods contain some GC B cells, even up to 100%. 
+
+Observed distributions can also be plotted for two variables, as demonstrated here for GC B cells and the follicular dendritic cell (FDC) network.
+
+```{r results='hide', fig.cap="Fig. 18. Joint distribution of GC B cells (O1.6) and FDC network (O2.5) across observed 10-micron neighborhoods."}
+plot_dist(census = CEN_images, ensemble = c("O1.6","O2.5"), radius = 10, bin_num = 11)
+```
+
+Unrounded values from the census can also be plotted, yielding the scatter plot of neighborhoods that underlies the joint distribution, simply by omitting the bin number for rounding.
+
+```{r results='hide', fig.cap="Fig. 19. Scatter plot of GC B cell (O1.6) and FDC network (O2.5) across observed 10-micron neighborhoods."}
+plot_dist(census = CEN_images, ensemble = c("O1.6","O2.5"), radius = 10)
+```
+
+The scatter plot reflects the data as it exists in the census, while the rounded joint distribution reflects the data as it is used in later statistical calculations. In either case, a clear pattern appears - within a 10um radius, the FDC network often appears without GC B cells, but GC B cells do not occur in abundance without the FDC network.
+
+This pattern may emerge from non-random positioning or as an artefact of the size, shape, and total abundance of GC B cells and FDCs. To distinguish these possibilities visually, an analogous joint distribution can be plotted for a simulated random census, in which sizes, shapes, and total abundances are preserved, but positioning is randomized. When a patch list is provided to the plot_dist function, a random census is simulated and plotted instead of the observed census.
+
+```{r results='hide', fig.cap="Fig. 20. Joint distribution of GC B cells (O1.6) and FDC network (O2.5) across randomized 10-micron neighborhoods."}
+plot_dist(census = CEN_images, ensemble = c("O1.6","O2.5"), radius = 10, bin_num = 11, patch_list = PLS_images)
+```
+
+The pattern from the observed census (Fig. 18) changes drastically when simulating a random census (Fig. 20), suggesting that the observed pattern is indeed non-random. Statistical testing of this conjecture will be performed later, but plotting distributions provides a clear visualization.
+
+# Discover Spatial Patterns within Single Biological Specimens
+
+To determine whether a particular ensemble of objects and/or scalars forms a significantly non-random pattern within a single biological specimen, a metric based on mutual information called cis mutual information (cisMI) is calculated. CisMI can be calculated for many ensembles, to discover and compare many patterns simultaneously.
+
+## Quantify Pattern Strength within a Single Specimen
+
+CisMI quantifies how strongly an ensemble's pattern of co-occurrence differs from null expectations. Null expectations are generated by simulating random censuses, in which the size, shape, and abundance of variables are preserved but their spatial arrangements are scrambled. CisMI also controls for subsets of ensembles to isolate the exact ensemble specified. For example, cisMI for O1.1, O1.2, and O1.3 quantifies the amount of non-random patterning among these three variables that cannot be explained by the non-random patterning of any of these variables individually or in pairs. By bootstrapping across replicated random censuses, the measure_cisMI function yields a P value for every ensemble of interest. These P values are adjusted for multiple testing using the Benjamini-Hochberg procedure.
+
+Ensembles of interest are defined primarily by depth - the maximum number of variables to examine at once. By default, all possible ensembles up to the specified depth are examined. But to investigate a particular hypothesis or to save computational time, specific variables can be named for which: 1) all must be included in all ensembles, 2) at least one must be included in all ensembles, and/or 3) none should appear in any ensemble. These "all," "alo," and "not" parameters only apply to ensembles of the largest depth. 
+
+The number of bootstraps can also be customized. More bootstraps increase computational time but also provide more accurate statistical quantification. One hundred bootstraps is a good compromise for final results, but fewer can be used for quick calculations and preliminary analyses.
+
+The measure_cisMI function automatically calculates the number of bins for rounding. For example, if the bin number is 6, the content of each variable in each neighborhood will be rounded to 0%, 20%, 40%, 60%, 80%, or 100% of that variable's maximum value across all neighborhoods (6 distinct bins). Higher bin numbers can detect more subtle quantitative spatial patterns; however, they also require more neighborhoods in the input census. Assuming maximal 5x coverage, more neighborhoods are only justified by a larger image area. Thus, the size of the image imposes a natural limit on the subtlety of spatial patterning that can be statistically verified. If patterning will be compared across multiple radii, each with different numbers of neighborhoods, the smallest number of neighborhoods is used to calculate a single common bin number. This insures that cisMI is comparable across the different radii.
+
+First, cisMI is measured for 10-micron neighborhoods only. Because these neighborhoods are relatively numerous (8051), the bin number is relatively high (9). This promotes detection of subtle quantitative spatial patterns.
+
+```{r echo=FALSE}
+load("MIS_images_10um.Rdata")
+```
+
+```{r eval=FALSE}
+MIS_images_10um <- measure_cisMI(census = CEN_images, patch_list = PLS_images, depth = 3, radii = 10, bootstraps = 100)
+```
+
+Second, cisMI is measured for all neighborhood sizes. Because the largest neighborhoods are not so numerous (319), the bin number is relatively low (3). This restricts detection to only the more exaggerated patterns, but it also permits fair comparison of cisMI across length scales. 
+
+```{r echo=FALSE}
+load("MIS_images_all.Rdata")
+```
+
+```{r eval=FALSE}
+MIS_images_all <- measure_cisMI(census = CEN_images, patch_list = PLS_images, depth = 3, radii = NULL, bootstraps = 100)
+```
+
+The measure_cisMI function returns a list of data frames, where the list index indicates neighborhood radius, and the data frames contain the cisMI statistics for all ensembles. Because this data structure is rather cumbersome, plotting functions are available to visualize cisMI and make meaningful comparisons.
+
+## Plot Pattern Strength within a Single Specimen
+
+CisMI can be visualized two different ways. First, at a single neighborhood radius, cisMI can be compared across many ensembles using the plot_MI_rank function. The cisMI scores must be supplied, along with the neighborhood radius of choice. All ensembles can be compared at once; however, too many ensembles can obscure the plot. Thus, the ensembles plotted can be restricted by ensemble depth or by the "all"/"alo"/"not" parameters. Furthermore, ensembles can be filtered by absolute cisMI as well as by P value.
+
+```{r warning=FALSE, results='hide', fig.height=6, fig.cap=c("Fig. 21. Significant ensembles at a length scale of 20um, ranked by P value.", "Fig. 22. Variables involved in significant ensembles at a length scale of 20um, ranked by average Z score.")}
+MIS_plot_20um <- plot_MI_rank(mi = MIS_images_all, radius = 20, col_pals = list(O1=PAL_obj1_alt, O2=PAL_obj2, S1=PAL_scl1, S3=PAL_scl3))
+```
+
+The default settings restrict ensembles to those with a P value < 0.05 and with absolute cisMI > 0.1. Point size reflects cisMI magnitude. Linked scalars appear at the same relative position as the objects to which they are linked. A second plot ranks the individual variables by average Z score, to indicate which variables are most often included in the most significant ensembles. Data frames containing the data shown in both plots are also returned in a two-part list.
+
+Second, for a single ensemble, the strength of patterning can be compared across neighborhood radii using the plot_MI_radius function. Again, the data structure containing the cisMI scores must be supplied, along with the specific ensemble to examine.
+
+```{r warning=FALSE, results='hide', fig.cap="Fig. 23. Significance and magnitude of cisMI for O1.8 and O2.5 across length scales."}
+MIS_plot_ens <- plot_MI_radius(mi = MIS_images_all, ensemble = c("O1.8","O2.5"))
+```
+
+Again, in addition to the plot, a data frame containing the underlying data is returned.
+
+# Describe Spatial Patterns within Single Biological Specimen
+
+CisMI quantifies the strength of non-random patterning among specific variables. However, this leaves the exact nature of patterning unknown. Non-random patterning could mean co-occurrence, mutual exclusion, or something more complicated. To understand the details of a specific non-random spatial pattern, further steps are available.
+
+## Plot Covariation among Specific Variables
+
+The details of the spatial pattern for any ensemble of variables can be visualized using a covariation plot. This plot shows how the local abundances of variables covary as a sliding window traverses the entire 2D or 3D extent of the image. The path of the sliding window is chosen by a self-organizing map to provide a parsimonious description of the spatial pattern and is condensed onto a 1D axis. This is accomplished using the learn_pattern function.
+
+```{r results='hide', fig.cap="Fig. 24. Covariation plot for O1.8 and O2.5 at a length scale of 20um."}
+CVP_ens <- learn_pattern(census = CEN_images, ensemble = c("O1.8", "O2.5"), radius = 20, col_pal = list(O1 = PAL_obj1_alt, O2 = PAL_obj2), patch_list = PLS_images)
+```
+
+In addition to the pattern of covariation among the variables, a line plot of enrichment is provided. Enrichment is measured relative to a random census, highlighting the portions of the covariation pattern that differ most compared to null expectations. 
+
+In this example, O1.8 represents follicular B cells, and O2.5 represents the FDC network. The abundances of these two variables appear positively correlated across the full extent of the image. Nearly the full pattern is enriched compared to null expectations, suggesting that this broad positive correlation is indeed non-random. In more granular detail, areas of the image with very few follicular B cells or FDCs (latent path 0-30%) or with very abundant follicular B cells and FDCs (latent path 80-100%) are especially enriched, suggesting that neither of these combinations would be likely to occur if spatial positioning were random. In between these extremes, enrichment is also high where the FDC network significantly outweighs follicular B cells (e.g. latent path 55-75%), suggesting that such areas are also unlikely under random positioning.
+
+As with most plots, a data frame of the underlying data is returned. This allows custom quantification of any desired feature of the covariation plot.
+
+## Create New Objects Based on Covariation
+
+Features of the covariation plot can also be mapped back onto the original image, by defining custom bounds on covariation plot features. In this example:
+
+- 0-15% on the latent path has no follicular B cells nor FDCs
+- 15-55% has moderate amounts of follicular B cells and FDCs
+- 55-67% has many more FDCs compared to follicular B cells
+- 67-100% has many follicular B cells and many FDCs
+
+By supplying the covariation data and these bounds to the map_pattern function, a new object image is generated.
+
+```{r echo=FALSE}
+load("MAP_img.Rdata")
+load("MAP_pal.Rdata")
+```
+
+```{r eval=FALSE}
+MAP_img <- map_pattern(covar_data = CVP_ens, region_bounds = list(c(0,15),c(15,55),c(55,67),c(67,100)), img = list(O1 = IMG_obj1, O2 = IMG_obj2), census = CEN_images, radius = 20, radii = PAR_radii)
+MAP_pal <- MAP_img[[2]]
+MAP_img <- MAP_img[[1]]
+```
+
+``` {r results=FALSE, echo=FALSE, fig.cap="Fig. 25. New object image of the broad zonation created by O1.8 and O2.5."}
+plot_image(MAP_img, "O", MAP_pal)
+```
+
+The map_pattern function returns a list of the array representation of this new object image and the corresponding color palette. It can be helpful to give these separate names.
+
+These outputs are formatted identically to SPACE inputs. Thus, this new image can be censused and searched for spatial patterns in a new iteration of SPACE.
+
+# Discover Spatial Patterns that Distinguish Groups of Biological Specimens
+
+CisMI detects spatial patterns that differ from random assortment in a single biological specimen. However, data sets often comprise many biological specimens that fall into groups based on treatment, timepoint, genotype, etc. In these cases, the question is not which patterns differ from random assortment, but rather which patterns differ most drastically across groups. To detect spatial patterns that distinguish groups, a metric called transMI is calculated.
+
+To demonstrate transMI, a set of 30 images of human Tuberculosis (TB) granulomas have been processed to reveal 20 cell types, 8 microenvironments, and 9 functional marker expression levels. Neighborhoods were censused at a length scale of 10um. Images are loaded and censuses collected simply by repeating the process described above for single specimens. Thus, these steps are omitted here. The images, color palettes, object/scalar names, neighborhood parameters, link table, censuses, and patch lists are provided. Images, censuses, and patch lists are stored in lists that are indexed by the specimen ID and follow a consistent order.
+
+```{r echo=FALSE}
+load("TB_CPM.Rdata")
+load("TB_MPM.Rdata")
+load("TB_TIF.Rdata")
+load("TB_CPM_PAL.Rdata")
+load("TB_CPM_NMS.Rdata")
+load("TB_MPM_PAL.Rdata")
+load("TB_MPM_NMS.Rdata")
+load("TB_TIF_PAL.Rdata")
+load("TB_TIF_NMS.Rdata")
+load("TB_PAR_RAD.Rdata")
+load("TB_PAR_NUM.Rdata")
+load("TB_CEN.Rdata")
+load("TB_PLS.Rdata")
+```
+
+## Quantify Pattern Strength across Multiple Specimens
+
+TransMI quantifies how an ensemble's pattern of co-occurrence differs across groups. The difference in patterning between every pair of specimens is quantified via Kullback-Leibler (KL) divergence. These KL divergences define a fully connected weighted network on the set of all specimens. The modularity of the groups on this network indicates how systematically the ensemble differs across groups. Via bootstrapped permutations, P values are calculated for every ensemble and then adjusted for multiple testing using the Benjamini-Hochberg procedure. All of this is performed by the measure_transMI function.
+
+Many aspects of transMI calculation are identical to cisMI. Ensembles are defined primarily by depth but may also be restricted using the "all," "alo," and "not" parameters. The number of bootstraps can be customized, but 100 is usually sufficient for final results. The number of bins for rounding when constructing the co-occurrence distributions is automatically chosen, based on the number of neighborhoods in the censuses associated with each specimen. If censuses are collected at multiple length scales, transMI can be calculated at each and compared.
+
+Additionally, transMI requires the specimens to be partitioned into groups. Multiple grouping factors (e.g. genotype; treatment) can be used, with multiple groups within each factor (e.g. knockout vs. wild type within genotype; Treatment A vs. B vs. C within treatment). This information is recorded in a data frame, where rows represent specimens in the same order as the list of censuses, and columns represent grouping factors. Each grouping factor specified in this data frame will be used separately to find ensembles whose patterning distinguishes among groups. Here, the only grouping factor is clinical status. In the list of censuses, the first 6 specimens derive from therapeutic resections, the next 6 from post-mortem sampling, and the final 18 from diagnostic biopsies.
+
+```{r}
+TB_GRP <- data.frame(Status = c(rep("Resection",6), rep("Postmortem",6), rep("Biopsy",18)))
+```
+
+TransMI is measured on the 10um neighborhoods for ensembles of up to 3 variables. Many variables are excluded because they appear in fewer than half of the 30 images.
+
+```{r echo=FALSE}
+load("TB_TMI.Rdata")
+```
+
+```{r eval=FALSE}
+TB_TMI <- measure_transMI(censuses = TB_CEN, groups = TB_GRP, depth = 3, radii = 10)
+```
+
+The measure_transMI function returns a list of data frames, where the index indicates neighborhood radius, and the data frames contain the transMI statistics for all ensembles. The same plotting functions used for cisMI can also be used to visualize transMI and make meaningful comparisons.
+
+## Plot Pattern Strength across Multiple Specimens
+
+At a single neighborhood radius, many ensembles can be compared using the plot_MI_rank function. The transMI scores must be supplied, along with the neighborhood radius of choice. The ensembles plotted can be restricted by ensemble depth or by the "all"/"alo"/"not" arguments, as well as by absolute transMI or P value. The name of the grouping factor of interest as it appears in the columns of the grouping factor data frame must also be specified.
+
+```{r fig.cap=c("Fig. 26. Ensembles that distinguish among groups at a length scale of 10um, ranked by P value.", "Fig. 27. Variables that distinguish among groups at a length scale of 10um, ranked by average Z score.")}
+TB_TMI_plot <- plot_MI_rank(mi = TB_TMI, radius = 10, col_pals = list(O1=TB_CPM_PAL, S1=TB_TIF_PAL), p_thr = 1e-7, group = "Status")
+```
+
+TransMI for a single ensemble can be compared across neighborhood radii using the plot_MI_radius function, just as for cisMI.
+
+# Describe Spatial Patterns that Distinguish Groups of Biological Specimens
+
+TransMI quantifies how well the patterning among variables distinguishes among groups. However, this leaves the exact nature of the patterning unknown. To understand the details of a pattern that distinguishes among, further steps are available.
+
+## Plot Covariation among Specific Variables
+
+Just as for cisMI, the details of the spatial pattern among any ensemble of variables can be visualized using a covariation plot. However, for transMI, the censuses for multiple specimens within groups are pooled together, to visualize common themes of patterning. 
+
+For transMI, the line plot of enrichment requires that some specimenss are labelled as 'focal' and others as 'reference.'
+
+```{r results='hide', fig.cap="Fig. 28. Covariation plot for O1.7_S1.3, O1.10, and O1.13_S1.9 at length scale 10um, comparing resection and post-mortem versus biopsy specimens."}
+TB_CVP <- learn_pattern(census = TB_CEN, ensemble = c("O1.7_S1.3", "O1.10", "O1.13_S1.9"), radius = 10, col_pal = list(O1 = TB_CPM_PAL, S1 = TB_TIF_PAL), group = TB_GRP, focal = c("Resection", "Postmortem"), reference = "Biopsy", smooth_window=500)
+```
+
+In this example, O1.7_S1.3 represents neutrophil expression of IDO1, O1.10 represents CD68+ macrophages, and O1.13_S1.9 represents CD11b/c+CD206+ macrophage expression of PD-L1. Over 75% of the tissue area is devoid of all three cell types. In the remaining area, neutrophil expression of IDO1 and CD11b/c+CD206+ macrophage expression of PD-L1 can occur in the same areas where CD68+ macrophages are abundant, and this is enriched in the Resection and Postmortem specimens. On the other hand, neutrophil expression of IDO1 and CD11b/c+CD206+ macrophage expression of PD-L1 are highest where CD68+ macrophages are rare, and this is more pronounced in the biopsy specimens.
+
+Again, the data frame of the underlying data is returned as well as the plot, to enable more customized analyses.
+
+## Create New Objects Based on Covariation
+
+Features of the covariation plot defined by custom bounds can be mapped onto any of the original images to create new object images exactly as shown previously.
+
+# Measure Diversity of Spatial Elements
+
+In addition to the patterning of specific spatial variables, SPACE also uses information theory to quantify the diversity of spatial variables at two levels. 
+
+## Alpha Diversity
+
+At a coarser scale, the fraction of a specimen that each variable comprises can be measured. The more different variables in a specimen, and the more equitable their abundances, the higher that specimen's alpha diversity. Alpha diversity is measured as Shannon entropy in bits, using the alpha_diversity function.
+
+```{r fig.cap="Fig. 29. Alpha diversity of segmented cell types in the 27th TB granuloma."}
+AD <- alpha_diversity(TB_CPM[[27]], "O", list(O1 = TB_CPM_PAL))
+```
+
+Alpha diversity can be measured and plotted for objects or independent scalars, but not for scalars that are linked to specific objects.
+
+## Beta Diversity
+
+At a finer scale, if a specimen contains both parent objects as well as constituent objects or scalars, the composition of each parent object can be measured separately in terms of the constituent variables. For example, the composition of microenvironments can be measured separately in terms of the segmented cell types in the TB specimens. The more distinct the compositions of each parent object, the higher the specimen's beta diversity. Beta diversity is measured in bits as the average KL divergence of each parent object's composition from the overall average composition, using the beta_diversity function.
+
+```{r warning=FALSE, fig.cap="Fig. 30. Beta diversity of microenvironments with respect to the segmented cell types in the 27th TB granuloma."}
+BD <- beta_diversity(list(O2 = TB_MPM[[27]], O1 = TB_CPM[[27]]), "O", list(O2 = TB_MPM_PAL, O2 = TB_CPM_PAL))
+```
+
+In this example, the cell type compositions of each microenvironment differ moderately from one another, resulting in a moderate beta diversity value. Microenvironments 1, 5, and 8 are missing altogether from this particular TB specimen. The alpha diversity of each parent object is reported individually, as well. 
+
+# Glossary
+
+- Census:  Collection of many neighborhoods and their contents from a tissue specimen
+- Cis Mutual Information (cisMI): 	Quantification of the non-randomness of an ensemble’s spatial pattern within a single specimen
+- Covariation Plot: 	Visualization of the pattern of covariation in abundance for a specific ensemble of variables 
+- Depth: Number of variables (scalars and/or objects) included in a particular ensemble
+- Distribution: 	Relative frequencies of the quantitative combinations of each variable in an ensemble, across all neighborhoods in a census 
+- Ensemble:  Specific group of variables (scalars and/or objects)
+- Grouping Factor:   Attribute used to categorize biological specimens
+- Image:  4D pixel-based data set, depicting scalar intensity or color-coded objects in XYZ dimensions and possibly across multiple channels (for scalars)
+- Independent Scalar:  Scalar whose at-large expression serves as a single spatial variable
+- Link Table:  Declaration of which object-scalar pairs should be analyzed
+- Linked Scalar:  Scalar whose object-specific expression serves as multiple spatial variables
+- Microenvironment:  Tissue region defined by a particular composition of variables
+- Neighborhood:  Spherical or circular spatial region whose composition is measured with respect to 1 or more variables
+- Object:  Spatial region belonging to a discrete category
+- Object Table:  Centroid location, object type, and optionally biomolecule expression for each discrete item in a tissue specimen 
+- Palette:	Colors that correspond to each scalar or object in a set
+- Patch:  Contiguous spatial region that belongs to one object or is bright for one scalar
+- Patch List:  All the patches of each variable that occur within the boundaries of the neighborhoods in a census
+- Profile Table:  Average composition with respect to scalars or constituent objects, for each object in a set
+- Radius:  Size of a spherical or circular neighborhood
+- Random Census:  Simulated census representing null expectations in the absence of any spatial patterning among scalar or object patches
+- Scalar:  Quantitative spatial readout of the amount of a biomolecule present
+- Seed Point:  Spatial location around which a neighborhood is drawn
+- Trans Mutual Information (transMI):  Quantification of the difference of ensemble's spatial pattern across groups of multiple specimens
+- Variable:  Any scalar or object
+
+# References
