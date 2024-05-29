@@ -1,0 +1,38 @@
+Package: SPACE
+Title: Spatial Patterning Analysis of Cellular Ensembles
+Version: 0.0.0.9000
+Authors@R: 
+    person("Edward", "Schrom", , "edward.schrom@nih.gov", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-1793-6433"))
+Description: SPACE provides a variety of analyses to identify and quantify spatial patterns formed by cells, microanatomical zones, extracellular structures, and other components of multiplex tissue images. 
+License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
+    license
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.2.3
+Imports:
+	abind,
+	cowplot,
+	doParallel,
+	dplyr,
+	FNN,
+	forcats,
+	foreach,
+	ggplot2,
+	imager,
+	kohonen,
+	memuse,
+	mgcv,
+	parallel,
+	patchwork,
+	plyr,
+	purrr,
+	raster,
+	reshape2,
+	scales,
+	stringr,
+	tibble,
+	tidyr,
+	tiff,
+	viridis,
+	zoo
