@@ -1,12 +1,3 @@
-setwd("C:/Users/schromec/Desktop/SPACE/SPACE/R")
-devtools::document()
-devtools::install()
-#restart R session
-setwd("C:/Users/schromec/Desktop/SPACE/SPACE_Tutorial")
-library(SPACE)
-
-
-
 library(SPACE)
 setwd("C:/Users/schromec/Desktop/SPACE/SPACE_Tutorial")
 load(".Rdata")
