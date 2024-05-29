@@ -7,10 +7,10 @@ SPACE is an R package for spatial analysis of multiplex images of biological tis
 ## Contents and Demo
 In addition to the source R code, this package also includes:
 - documentation detailing the purpose, inputs, parameters, and outputs of each function
-- a tutorial in vignette and html formats describing a typical SPACE analysis workflow
-- sample data in .tif and .csv format in the vignettes folder to follow along with the tutorial
+- a tutorial describing a typical SPACE analysis workflow
+- sample data to follow along with the tutorial
 
-To get started, use the data in the vignettes folder to follow the tutorial, which includes all commands, suggested parameters and arguments, notes on expected runtimes, and expected outputs.
+To get started, follow the tutorial, which includes all commands, suggested parameters and arguments, notes on expected runtimes, and expected outputs.
 
 ## Current Status
 A manuscript that details and demonstrates SPACE is posted on bioRxiv and is also currently under review for publication.
