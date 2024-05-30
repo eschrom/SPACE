@@ -13,7 +13,7 @@ In addition to the source R code, this package also includes:
 To get started, follow the tutorial, which includes all commands, suggested parameters and arguments, notes on expected runtimes, and expected outputs.
 
 ## Current Status
-A manuscript that details and demonstrates SPACE is posted on bioRxiv and is also currently under review for publication.
+A manuscript that details and demonstrates SPACE is posted on bioRxiv (DOI: https://doi.org/10.1101/2023.12.08.570837) and is also currently under review for publication.
 
 ## Installation
 SPACE can be installed directly from Github:
